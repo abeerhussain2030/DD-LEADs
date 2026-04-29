@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DD-LEADS-Enricher</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0b10;
+  --surface: #111219;
+  --surface2: #181a24;
+  --border: #252836;
+  --accent: #F04E3F;
+  --accent2: #10b981;
+  --accent3: #6366f1;
+  --danger: red;
+  --text: #e2e8f0;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+  --p1: #0466c8;
+  --p2: #f59e0b;
+  --p3: #10b981;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'sans-serif', monospace; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: linear-gradient(rgba(245,158,11,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(245,158,11,0.03) 1px, transparent 1px);
+  background-size: 40px 40px; pointer-events: none; z-index: 0;
+}
+.container { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 20px; }
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 24px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; margin-bottom: 20px;
+}
+/* .logo { display: flex; align-items: center; gap: 12px; } */
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-icon {
+  width: 38px; height: 38px;
+  background: linear-gradient(135deg, var(--accent));
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font-family: 'Syne', sans-serif; font-weight: 800; font-size: 16px; color: #000;
+}
+.logo-img {
+  width: 100px;
+  height: 70px;
+  object-fit: contain;
+  border-radius: 6px;   /* optional rounded logo */
+}
+.logo-text { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 20px; color: var(--text); letter-spacing: -0.5px; }
+.logo-sub { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+.header-status { display: flex; gap: 16px; align-items: center; }
+.status-pill { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+.dot.green { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+.dot.red { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+.main-grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.panel-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.panel-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+.panel-icon { font-size: 15px; }
+.panel-body { padding: 18px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 6px; }
+.field input, .field select {
+  width: 100%; padding: 9px 12px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 7px; color: var(--text); font-family: 'Space Mono', monospace; font-size: 12px; outline: none; transition: border-color 0.2s;
+}
+.field input:focus { border-color: var(--accent); }
+.field input::placeholder { color: var(--text-muted); }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.toggle-label { font-size: 11px; color: var(--text-dim); }
+.toggle { position: relative; width: 36px; height: 20px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--border); border-radius: 20px; transition: 0.3s; }
+.slider:before { position: absolute; content: ''; height: 14px; width: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s; }
+input:checked + .slider { background: var(--accent); }
+input:checked + .slider:before { transform: translateX(16px); }
+.upload-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; }
+.upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: rgba(245,158,11,0.04); }
+.upload-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.upload-icon { font-size: 28px; margin-bottom: 8px; }
+.upload-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.upload-sub { font-size: 10px; color: var(--text-muted); }
+.file-info { display: none; padding: 10px 14px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; margin-top: 10px; font-size: 11px; color: var(--accent2); }
+.btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; margin-top: 8px; }
+.btn-primary { background: linear-gradient(135deg, var(--accent)); color: #000; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px red; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.btn-success { background: linear-gradient(135deg, var(--accent2), #059669); color: #000; display: none; margin-top: 10px; }
+.btn-success:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(16,185,129,0.3); }
+.progress-wrap { margin-top: 14px; display: none; }
+.progress-label { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-bottom: 6px; }
+.progress-bar { height: 4px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), red); border-radius: 4px; transition: width 0.3s; width: 0%; }
+.log-wrap { margin-top: 14px; max-height: 200px; overflow-y: auto; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.log-line { font-size: 10px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); color: var(--text-muted); line-height: 1.5; }
+.log-line.ok { color: var(--accent2); }
+.log-line.err { color: var(--danger); }
+.log-line.info { color: var(--accent); }
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; text-align: center; }
+.stat-num { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 26px; color: var(--accent); line-height: 1; }
+.stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 11px; }
+thead th { background: var(--surface2); padding: 10px 12px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
+thead th.new-col { color: var(--accent); }
+tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.15s; }
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+tbody td { padding: 10px 12px; vertical-align: top; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 12px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.badge-p1 { background: rgba(239,68,68,0.15); color: var(--p1); border: 1px solid rgba(239,68,68,0.3); }
+.badge-p2 { background: rgba(245,158,11,0.15); color: var(--p2); border: 1px solid rgba(245,158,11,0.3); }
+.badge-p3 { background: rgba(16,185,129,0.15); color: var(--p3); border: 1px solid rgba(16,185,129,0.3); }
+.badge-yes { background: rgba(239,68,68,0.1); color: var(--p1); }
+.badge-no { background: rgba(100,116,139,0.1); color: var(--text-muted); }
+.badge-ok { background: rgba(16,185,129,0.1); color: var(--accent2); }
+.badge-warn { background: rgba(245,158,11,0.1); color: var(--accent); }
+.skill-tag { padding: 1px 6px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); border-radius: 10px; font-size: 9px; color: #818cf8; }
+.right-panel { display: flex; flex-direction: column; gap: 16px; }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.5; }
+.empty-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px; color: var(--text-dim); }
+.empty-sub { font-size: 11px; margin-top: 6px; }
+.error-banner { display: none; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 10px 14px; font-size: 11px; color: var(--danger); margin-top: 8px; line-height: 1.6; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+/* ── FOOTER ── */
+.site-footer {
+  position: relative; z-index: 1;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 18px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.footer-left {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+.footer-left span { color: var(--accent); font-weight: 700; }
+.footer-right {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.footer-dev-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 700;
+  font-family: 'Syne', sans-serif;
+  letter-spacing: 0.3px;
+  transition: color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.footer-dev-link:hover { color: red; text-decoration: underline; }
+.footer-sep {
+  width: 1px; height: 12px; background: var(--border);
+}
+.footer-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); opacity: 0.6; }
+
+@media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } .stats-row { grid-template-columns: repeat(2, 1fr); } .site-footer { flex-direction: column; align-items: flex-start; padding: 16px 20px; } }
+
+@media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } .stats-row { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- <header>
+    <div class="logo">
+      <div class="logo-icon">LF</div>
+      <div>
+        <div class="logo-text">LeadForge</div>
+        <div class="logo-sub">Automated Lead Enricher</div>
+      </div>
+    </div>
+    <div class="header-status">
+      <div class="status-pill"><span class="dot" id="snovDot"></span><span id="snovLabel">Snov.io</span></div>
+      <div class="status-pill"><span class="dot" id="claudeDot"></span><span id="claudeLabel">Claude</span></div>
+    </div>
+  </header> -->
+  <header>
+  <div class="logo">
+    
+    <!-- Image Logo -->
+    <img src="Images/Orange Brand Mark Dimensions.png" alt="LeadForge Logo" class="logo-img">
+
+    <!-- Text Logo -->
+    <div>
+      <div class="logo-text">DD-LEADS</div>
+      <div class="logo-sub">Disruptive Designs Lead Enricher</div>
+    </div>
+  </div>
+
+  <div class="header-status">
+    <div class="status-pill">
+      <span class="dot" id="snovDot"></span>
+      <span id="snovLabel">Snov.io</span>
+    </div>
+    <div class="status-pill">
+      <span class="dot" id="claudeDot"></span>
+      <span id="claudeLabel">Claude</span>
+    </div>
+  </div>
+</header>
+
+  <div class="main-grid">
+    <div>
+      <!-- API Settings -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-header"><span class="panel-icon"></span><span class="panel-title">API Settings</span></div>
+        <div class="panel-body">
+          <div class="field">
+            <label>Client ID</label>
+            <input type="text" id="snovClientId" placeholder="Enter Client ID..." />
+          </div>
+          <div class="field">
+            <label>Client Secret</label>
+            <input type="password" id="snovClientSecret" placeholder="Enter Client Secret..." />
+          </div>
+          <div class="field">
+            <label>API Key</label>
+            <input type="password" id="claudeApiKey" placeholder="sk-ant-api03-..." oninput="updateClaudeStatus()" />
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Use CORS Proxy for Snov.io</span>
+            <label class="toggle"><input type="checkbox" id="corsProxy" /><span class="slider"></span></label>
+          </div>
+          <button class="btn btn-primary" onclick="testConnection()">▶ Test Snov.io Connection</button>
+          <div class="error-banner" id="errorBanner"></div>
+        </div>
+      </div>
+
+      <!-- Upload -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-header"><span class="panel-icon"></span><span class="panel-title">Upload CSV</span></div>
+        <div class="panel-body">
+          <div class="upload-zone" id="uploadZone">
+            <input type="file" id="csvFile" accept=".csv" onchange="handleFileSelect(this)" />
+            <div class="upload-icon">📊</div>
+            <div class="upload-title">Drop CSV here or click</div>
+            <div class="upload-sub">Required columns: Sno, Company Name, URL, Employees,<br>Full Name, First Name, Last Name,<br>Designation, Email, LinkedIn URL, Industry</div>
+          </div>
+          <div class="file-info" id="fileInfo"></div>
+          <div style="margin-top:14px">
+            <div class="toggle-row">
+              <span class="toggle-label">Enrich via LinkedIn URL (Snov.io)</span>
+              <label class="toggle"><input type="checkbox" id="doLinkedin" checked /><span class="slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">Find New Email if Outdated</span>
+              <label class="toggle"><input type="checkbox" id="doEmail" checked /><span class="slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">Generate Hooks via Claude API</span>
+              <label class="toggle"><input type="checkbox" id="doHooks" checked /><span class="slider"></span></label>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="processBtn" onclick="startProcessing()" disabled>Process Leads</button>
+          <button class="btn btn-success" id="downloadBtn" onclick="downloadCSV()">⬇ Download Enriched CSV</button>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="panel">
+        <div class="panel-header"><span class="panel-icon"></span><span class="panel-title">Processing Log</span></div>
+        <div class="panel-body">
+          <div class="progress-wrap" id="progressWrap">
+            <div class="progress-label"><span id="progressText">Processing...</span><span id="progressPct">0%</span></div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          </div>
+          <div class="log-wrap" id="logWrap">
+            <div class="log-line info">DD-LEADS ready. Enter API keys, then upload CSV.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right-panel">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-num" id="statTotal">0</div><div class="stat-label">Total Leads</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--p1)" id="statP1">0</div><div class="stat-label">Priority P1 🔵</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--p2)" id="statP2">0</div><div class="stat-label">Priority P2 🟡</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--accent2)" id="statChanges">0</div><div class="stat-label">Changes Found</div></div>
+      </div>
+      <div class="table-wrap">
+        <div id="tableContainer">
+          <div class="empty-state">
+            <div class="empty-icon">🎯</div>
+            <div class="empty-title">No leads processed yet</div>
+            <div class="empty-sub">Upload a CSV and click "Process Leads" to begin</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-left">
+    &copy; <span id="footerYear"></span> <span>Disruptive Designs</span> — All Rights Reserved
+  </div>
+  <div class="footer-right">
+    <span>Developed by</span>
+    <div class="footer-dot"></div>
+    <a class="footer-dev-link" href="https://www.linkedin.com/in/abeerbinshujat/" target="_blank" rel="noopener">
+      Abeer Bin Shujat
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:0.8">
+        <path d="M2 10L10 2M10 2H4M10 2V8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </a>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('footerYear').textContent = new Date().getFullYear();
+// ─── STATE ───────────────────────────────────────────────
+let csvData = [];
+let enrichedData = [];
+let snovToken = null;
+let tokenExpiry = 0;
+let isProcessing = false;
+
+// ─── COLUMN RESOLVER ─────────────────────────────────────
+// Flexible column finder — matches regardless of case/spacing/variations
+const COL_MAP = {
+  fullName:     ['full name', 'fullname', 'full_name', 'name'],
+  firstName:    ['first name', 'firstname', 'first_name'],
+  lastName:     ['last name', 'lastname', 'last_name'],
+  company:      ['company name', 'companyname', 'company', 'firm'],
+  url:          ['company url', 'url', 'website', 'company website'],
+  designation:  ['job position', 'designation', 'title', 'position', 'job title', 'role'],
+  email:        ['email', 'email address'],
+  linkedin:     ['linkedin', 'linkedin url', 'linkedin_url', 'social link', 'li url'],
+  industry:     ['industry'],
+  employees:    ['employees', 'employee count', 'headcount', 'company size']
+};
+
+function resolveColumns(headers) {
+  const lowerHeaders = headers.map(h => h.toLowerCase().trim());
+  const resolved = {};
+  for (const [key, aliases] of Object.entries(COL_MAP)) {
+    for (const alias of aliases) {
+      const idx = lowerHeaders.findIndex(h => h === alias || h.includes(alias));
+      if (idx !== -1) { resolved[key] = headers[idx]; break; }
+    }
+    if (!resolved[key]) resolved[key] = null;
+  }
+  return resolved;
+}
+
+let colMap = {}; // populated after CSV load
+
+function getField(row, key) {
+  const col = colMap[key];
+  return col ? (row[col] || '').trim() : '';
+}
+
+// ─── HELPERS ─────────────────────────────────────────────
+function log(msg, type = '') {
+  const wrap = document.getElementById('logWrap');
+  const el = document.createElement('div');
+  el.className = 'log-line ' + type;
+  el.textContent = new Date().toLocaleTimeString('en-US', {hour12:false}) + '  ' + msg;
+  wrap.appendChild(el);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function showError(msg) {
+  const b = document.getElementById('errorBanner');
+  b.style.display = 'block';
+  b.textContent = msg;
+}
+
+function hideError() {
+  document.getElementById('errorBanner').style.display = 'none';
+}
+
+function updateProgress(current, total) {
+  const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+  document.getElementById('progressText').textContent = `Processing ${current} / ${total}`;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function normalizeDomain(url) {
+  if (!url) return '';
+  try {
+    const u = url.startsWith('http') ? url : 'https://' + url;
+    return new URL(u).hostname.replace(/^www\./, '').toLowerCase();
+  } catch { return url.toLowerCase().replace(/^www\./, ''); }
+}
+
+// Extract root name from domain: "aoarchitects.com" → "aoarchitects"
+function domainRoot(domain) {
+  return domain.split('.')[0] || '';
+}
+
+function updateClaudeStatus() {
+  const key = document.getElementById('claudeApiKey').value.trim();
+  if (key.startsWith('sk-ant-')) {
+    document.getElementById('claudeDot').className = 'dot green';
+    document.getElementById('claudeLabel').textContent = 'Claude API: Set';
+  } else if (key.length > 0) {
+    document.getElementById('claudeDot').className = 'dot red';
+    document.getElementById('claudeLabel').textContent = 'Claude API: Invalid key';
+  } else {
+    document.getElementById('claudeDot').className = 'dot';
+    document.getElementById('claudeLabel').textContent = 'Claude API: Not set';
+  }
+}
+
+// ─── SNOV.IO ─────────────────────────────────────────────
+function apiBase() {
+  return document.getElementById('corsProxy').checked
+    ? 'https://corsproxy.io/?url=https://api.snov.io'
+    : 'https://api.snov.io';
+}
+
+// FIX: Snov.io token requires application/x-www-form-urlencoded, NOT JSON
+async function getSnovToken() {
+  if (snovToken && Date.now() < tokenExpiry) return snovToken;
+
+  const clientId = document.getElementById('snovClientId').value.trim();
+  const clientSecret = document.getElementById('snovClientSecret').value.trim();
+  if (!clientId || !clientSecret) throw new Error('Snov.io Client ID and Secret are required.');
+
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: clientId,
+    client_secret: clientSecret
+  });
+
+  const res = await fetch(`${apiBase()}/v1/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Snov.io token error (${res.status}): ${txt.slice(0,200)}`);
+  }
+
+  const data = await res.json();
+  if (!data.access_token) throw new Error('No access_token in response: ' + JSON.stringify(data));
+  snovToken = data.access_token;
+  tokenExpiry = Date.now() + 3000 * 1000; // 50 min
+  return snovToken;
+}
+
+async function enrichLinkedIn(linkedinUrl) {
+  const token = await getSnovToken();
+
+  const formData = new FormData();
+  formData.append('urls[]', linkedinUrl.trim());
+
+  const startRes = await fetch(`${apiBase()}/v2/li-profiles-by-urls/start`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token },
+    body: formData
+  });
+
+  if (!startRes.ok) throw new Error(`LinkedIn start error (${startRes.status})`);
+
+  const startData = await startRes.json();
+  const taskHash = startData?.data?.task_hash;
+  if (!taskHash) throw new Error('No task_hash returned: ' + JSON.stringify(startData).slice(0,200));
+
+  // Poll up to 10 times, 4s apart (40s max)
+  for (let i = 0; i < 10; i++) {
+    await sleep(4000);
+    const resultRes = await fetch(`${apiBase()}/v2/li-profiles-by-urls/result?task_hash=${taskHash}`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!resultRes.ok) continue;
+    const resultData = await resultRes.json();
+    if (resultData.status === 'completed' && resultData.data?.length > 0) {
+      return resultData.data[0].result || null;
+    }
+    if (resultData.status === 'failed') break;
+  }
+  return null;
+}
+
+async function findEmail(firstName, lastName, domain) {
+  // Guard: ensure all values are strings before calling .trim()
+  firstName = (firstName || '').toString().trim();
+  lastName  = (lastName  || '').toString().trim();
+  domain    = (domain    || '').toString().trim();
+  if (!firstName || !lastName || !domain) return null;
+
+  const token = await getSnovToken();
+  const formData = new FormData();
+  formData.append('firstName', firstName);
+  formData.append('lastName', lastName);
+  formData.append('domain', domain);
+
+  const res = await fetch(`${apiBase()}/v1/get-emails-from-names`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token },
+    body: formData
+  });
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.data?.emails?.[0]?.email || null;
+}
+
+// ─── CLAUDE API ──────────────────────────────────────────
+// FIX: Browser calls to Anthropic API need the special header
+async function generateHooks(lead, changes) {
+  const apiKey = document.getElementById('claudeApiKey').value.trim();
+
+  // Use resolved column names for correct field extraction
+  const name = getField(lead,'fullName') || `${getField(lead,'firstName')} ${getField(lead,'lastName')}`.trim() || 'the recipient';
+  const company = getField(lead,'company') || 'the company';
+  const oldTitle = getField(lead,'designation') || 'Unknown';
+  const newTitle = changes.newTitle || oldTitle;
+  const industry = getField(lead,'industry') || 'Architecture';
+  const employees = getField(lead,'employees') || 'Unknown';
+  const changesSummary = changes.summary || 'No major changes detected';
+
+  const prompt = `You are an expert B2B outreach specialist for an architectural outsourcing firm based in Pakistan that serves US architecture firms.
+
+Analyze this lead and generate outreach content IN ENGLISH ONLY.
+
+LEAD DATA:
+- Name: ${name}
+- Company: ${company}
+- Industry: ${industry}
+- Old Title: ${oldTitle}
+- New Title: ${newTitle}
+- Company Size: ${employees} employees
+- Changes Detected: ${changesSummary}
+
+INSTRUCTIONS:
+Generate the following and respond ONLY with valid JSON (no markdown, no backticks, no explanation):
+
+{
+  "hook1": "P1 hook — based on their promotion or title change. Max 2 sentences. Direct and specific.",
+  "hook2": "P2 hook — based on company scale, specialization, or growth. Max 2 sentences.",
+  "subject": "Email subject line. Max 10 words. Personalized to their name/company.",
+  "opening": "Opening line for cold email. 1-2 sentences. Reference the specific change detected. Professional tone."
+}`;
+
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'  // FIX: Required for browser calls
+    };
+    if (apiKey) headers['x-api-key'] = apiKey;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 600,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Claude API error (${res.status}): ${errText.slice(0,300)}`);
+    }
+
+    const data = await res.json();
+    const raw = data.content?.[0]?.text || '{}';
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    return JSON.parse(clean);
+  } catch (e) {
+    log(`  ⚠️ Hook generation failed: ${e.message}`, 'err');
+    // English-only fallback using resolved fields
+    const fName = getField(lead,'firstName') || name.split(' ')[0] || 'there';
+    const titleDisplay = (newTitle && newTitle !== 'Unknown') ? newTitle : oldTitle;
+    return {
+      hook1: `As ${titleDisplay} at ${company}, ${fName} is directly responsible for project delivery and team capacity — a strong fit for outsourced architectural support.`,
+      hook2: `${company}'s ${industry.toLowerCase()} practice likely faces tight deadlines and CD delivery pressure — areas where outsourced drafting and support add immediate value.`,
+      subject: `Outsourced support for ${company}, ${fName}`,
+      opening: `Hi ${fName}, I came across ${company} while researching ${industry.toLowerCase()} firms — I wanted to share a quick idea about how we support US firms like yours with outsourced architectural delivery.`
+    };
+  }
+}
+
+// ─── CHANGE DETECTION ────────────────────────────────────
+// FIX: Improved email domain comparison — more accurate
+function detectChanges(lead, enriched) {
+  const changes = { newTitle:null, titleChanged:false, emailOutdated:false, newEmail:null, companyChanged:false, summary:'No changes detected', skills:[], location:'' };
+  if (!enriched) return changes;
+
+  const parts = [];
+
+  // 1. Title change — use resolved 'designation' field
+  const oldTitle = getField(lead,'designation').trim().toLowerCase();
+  const liTitle = (enriched.positions?.[0]?.title || '').trim().toLowerCase();
+  if (liTitle && oldTitle && liTitle !== oldTitle) {
+    changes.titleChanged = true;
+    changes.newTitle = enriched.positions?.[0]?.title;
+    parts.push(`Promotion: "${getField(lead,'designation')}" → "${changes.newTitle}"`);
+  }
+
+  // 2. Company domain change — use resolved 'url' field
+  const oldDomain = normalizeDomain(getField(lead,'url'));
+  const liDomain = normalizeDomain(enriched.positions?.[0]?.url || '');
+  if (oldDomain && liDomain && oldDomain !== liDomain) {
+    changes.companyChanged = true;
+    parts.push(`Company domain: ${oldDomain} → ${liDomain}`);
+  }
+
+  // 3. Email outdated — use resolved 'email' field
+  const currentEmail = getField(lead,'email').toLowerCase();
+  const emailDomain = currentEmail.split('@')[1] || '';
+  const emailDomainRoot = domainRoot(emailDomain);
+  const currentCompanyDomain = oldDomain || liDomain;
+  const currentCompanyRoot = domainRoot(currentCompanyDomain);
+  if (emailDomainRoot && currentCompanyRoot && emailDomainRoot !== currentCompanyRoot) {
+    changes.emailOutdated = true;
+    parts.push(`Email domain mismatch: "${emailDomain}" vs company "${currentCompanyDomain}"`);
+  }
+
+  changes.skills = (enriched.skills || []).slice(0, 8);
+  changes.location = enriched.location || '';
+  changes.summary = parts.length > 0 ? parts.join(' | ') : 'No changes detected';
+  return changes;
+}
+
+// ─── PRIORITY ────────────────────────────────────────────
+function assignPriority(changes) {
+  if (changes.titleChanged || changes.emailOutdated) return 'P1';
+  if (changes.companyChanged) return 'P2';
+  if (changes.skills.length > 4) return 'P2';
+  return 'P3';
+}
+
+// ─── CSV PARSE ───────────────────────────────────────────
+function parseCSV(text) {
+  // Handle Windows line endings
+  const lines = text.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const headers = smartSplit(lines[0]).map(h => h.trim().replace(/^"|"$/g, ''));
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const vals = smartSplit(lines[i]);
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = (vals[idx] || '').trim().replace(/^"|"$/g, ''); });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function smartSplit(line) {
+  const result = []; let cur = ''; let inQ = false;
+  for (const ch of line) {
+    if (ch === '"') { inQ = !inQ; }
+    else if (ch === ',' && !inQ) { result.push(cur); cur = ''; }
+    else { cur += ch; }
+  }
+  result.push(cur);
+  return result;
+}
+
+// ─── FILE HANDLING ───────────────────────────────────────
+function handleFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      csvData = parseCSV(e.target.result);
+      if (csvData.length === 0) { log('❌ CSV appears empty or malformed', 'err'); return; }
+      
+      // Resolve column mapping from actual headers
+      colMap = resolveColumns(Object.keys(csvData[0]));
+      const mappedCols = Object.entries(colMap).filter(([k,v])=>v).map(([k,v])=>`${k}="${v}"`).join(', ');
+      log(`CSV loaded: ${csvData.length} leads`, 'ok');
+      log(`Column mapping: ${mappedCols}`, 'info');
+      
+      // Warn about missing critical columns
+      const missing = ['fullName','company','designation','linkedin'].filter(k => !colMap[k]);
+      if (missing.length) log(`⚠️ Could not map columns: ${missing.join(', ')} — check CSV headers`, 'err');
+
+      document.getElementById('fileInfo').style.display = 'block';
+      document.getElementById('fileInfo').textContent = `✅ ${file.name} — ${csvData.length} leads loaded (${Object.keys(csvData[0]).length} columns detected)`;
+      document.getElementById('statTotal').textContent = csvData.length;
+      document.getElementById('processBtn').disabled = false;
+      renderPreviewTable(csvData);
+    } catch(err) {
+      log('❌ CSV parse error: ' + err.message, 'err');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ─── TEST CONNECTION ─────────────────────────────────────
+async function testConnection() {
+  hideError();
+  log('Testing Snov.io connection...', 'info');
+  try {
+    snovToken = null;
+    await getSnovToken();
+    log('✅ Snov.io connected! Token received successfully.', 'ok');
+    document.getElementById('snovDot').className = 'dot green';
+    document.getElementById('snovLabel').textContent = 'Snov.io: Connected ✓';
+  } catch (e) {
+    log('❌ Snov.io error: ' + e.message, 'err');
+    showError('❌ ' + e.message + (e.message.includes('fetch') ? '\n\n💡 Try enabling the CORS Proxy toggle above.' : ''));
+    document.getElementById('snovDot').className = 'dot red';
+    document.getElementById('snovLabel').textContent = 'Snov.io: Failed';
+  }
+}
+
+// ─── MAIN PROCESSING ─────────────────────────────────────
+async function startProcessing() {
+  if (isProcessing || csvData.length === 0) return;
+  isProcessing = true;
+  hideError();
+
+  const doLinkedin = document.getElementById('doLinkedin').checked;
+  const doEmail = document.getElementById('doEmail').checked;
+  const doHooks = document.getElementById('doHooks').checked;
+
+  document.getElementById('processBtn').disabled = true;
+  document.getElementById('downloadBtn').style.display = 'none';
+  document.getElementById('progressWrap').style.display = 'block';
+  enrichedData = [];
+
+  let p1=0, p2=0, changes=0;
+  log(`🚀 Starting processing of ${csvData.length} leads...`, 'info');
+
+  for (let i = 0; i < csvData.length; i++) {
+    const lead = { ...csvData[i] };
+    // Use resolved column map for all field access
+    const name = getField(lead,'fullName') || `${getField(lead,'firstName')} ${getField(lead,'lastName')}`.trim() || 'Unknown';
+    const company = getField(lead,'company') || '?';
+    const linkedinUrl = getField(lead,'linkedin');
+    const firstName = getField(lead,'firstName');
+    const lastName = getField(lead,'lastName');
+    const companyUrl = getField(lead,'url');
+
+    log(`[${i+1}/${csvData.length}] → ${name} @ ${company}`);
+    updateProgress(i, csvData.length);
+
+    let enriched = null;
+    let chg = { newTitle:null, titleChanged:false, emailOutdated:false, newEmail:null, companyChanged:false, summary:'Not enriched', skills:[], location:'' };
+
+    // STEP 1: LinkedIn enrichment
+    if (doLinkedin && linkedinUrl) {
+      try {
+        log(`   → Fetching LinkedIn profile from Snov.io...`);
+        enriched = await enrichLinkedIn(linkedinUrl);
+        if (enriched) {
+          chg = detectChanges(lead, enriched);
+          log(`   ✅ Profile fetched. Changes: ${chg.summary}`, 'ok');
+        } else {
+          log(`   ⚠️ No profile data returned`, 'err');
+        }
+      } catch (e) {
+        log(`   ❌ LinkedIn error: ${e.message}`, 'err');
+      }
+    } else if (!linkedinUrl) {
+      log(`   ⚠️ No LinkedIn URL found — skipping enrichment`);
+    }
+
+    // STEP 2: Find new email if outdated
+    if (doEmail && chg.emailOutdated && firstName && lastName) {
+      const domain = normalizeDomain(companyUrl);
+      if (domain) {
+        try {
+          log(`   → Searching for updated email at ${domain}...`);
+          const newEmail = await findEmail(lead['First Name'], lead['Last Name'], domain);
+          if (newEmail) {
+            chg.newEmail = newEmail;
+            log(`   ✅ New email found: ${newEmail}`, 'ok');
+          } else {
+            log(`   ⚠️ No new email found via Snov.io`);
+          }
+        } catch (e) {
+          log(`   ⚠️ Email search error: ${e.message}`);
+        }
+      }
+    }
+
+    // STEP 3: Priority
+    const priority = assignPriority(chg);
+    if (priority === 'P1') p1++;
+    else if (priority === 'P2') p2++;
+    if (chg.titleChanged || chg.companyChanged || chg.emailOutdated) changes++;
+
+    // STEP 4: Hooks
+    let hooks = { hook1:'', hook2:'', subject:'', opening:'' };
+    if (doHooks) {
+      try {
+        log(`   → Generating outreach hooks via Claude...`);
+        hooks = await generateHooks(lead, chg);
+        log(`   ✅ Hooks generated in English`, 'ok');
+      } catch (e) {
+        log(`   ⚠️ Hook error: ${e.message}`);
+      }
+    }
+
+    // Build result row — English only values
+    const row = {
+      ...lead,
+      'Snov_Current_Title':   chg.newTitle || enriched?.positions?.[0]?.title || getField(lead,'designation') || '',
+      'Title_Changed':        chg.titleChanged ? 'YES' : 'NO',
+      'Old_Title':            getField(lead,'designation') || '',
+      'New_Title':            chg.newTitle || '',
+      'Email_Status':         chg.emailOutdated ? 'OUTDATED' : 'OK',
+      'New_Email_Found':      chg.newEmail || '',
+      'Company_Domain_Changed': chg.companyChanged ? 'YES' : 'NO',
+      'Location_Snov':        chg.location || '',
+      'Skills_Snov':          chg.skills.join('; '),
+      'Changes_Summary':      chg.summary,
+      'Priority':             priority,
+      'Hook_P1':              hooks.hook1 || '',
+      'Hook_P2':              hooks.hook2 || '',
+      'Email_Subject':        hooks.subject || '',
+      'Email_Opening_Line':   hooks.opening || ''
+    };
+
+    enrichedData.push(row);
+
+    // Update stats live
+    document.getElementById('statP1').textContent = p1;
+    document.getElementById('statP2').textContent = p2;
+    document.getElementById('statChanges').textContent = changes;
+    renderResultsTable(enrichedData);
+
+    await sleep(1500); // Snov.io rate limit buffer
+  }
+
+  updateProgress(csvData.length, csvData.length);
+  log(`🎉 Complete! ${csvData.length} leads processed. P1: ${p1} | P2: ${p2} | Changes: ${changes}`, 'ok');
+  document.getElementById('downloadBtn').style.display = 'block';
+  document.getElementById('processBtn').disabled = false;
+  isProcessing = false;
+}
+
+// ─── TABLE RENDER ─────────────────────────────────────────
+function renderPreviewTable(data) {
+  if (!data.length) return;
+  const container = document.getElementById('tableContainer');
+  const keys = Object.keys(data[0]);
+  let html = '<div style="max-height:500px;overflow:auto"><table><thead><tr>';
+  keys.forEach(k => html += `<th>${k}</th>`);
+  html += '</tr></thead><tbody>';
+  data.slice(0,5).forEach(row => {
+    html += '<tr>';
+    keys.forEach(k => html += `<td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${row[k]||''}</td>`);
+    html += '</tr>';
+  });
+  if (data.length>5) html += `<tr><td colspan="${keys.length}" style="text-align:center;color:var(--text-muted);padding:10px;font-size:10px">+ ${data.length-5} more rows…</td></tr>`;
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+function renderResultsTable(data) {
+  const container = document.getElementById('tableContainer');
+  const origCols = Object.keys(csvData[0] || {});
+  const newCols = ['Snov_Current_Title','Title_Changed','Old_Title','New_Title','Email_Status','New_Email_Found','Company_Domain_Changed','Location_Snov','Skills_Snov','Changes_Summary','Priority','Hook_P1','Hook_P2','Email_Subject','Email_Opening_Line'];
+
+  let html = '<div style="max-height:500px;overflow:auto"><table><thead><tr>';
+  origCols.forEach(k => html += `<th>${k}</th>`);
+  newCols.forEach(k => html += `<th class="new-col">${k.replace(/_/g,' ')}</th>`);
+  html += '</tr></thead><tbody>';
+
+  data.forEach(row => {
+    html += '<tr>';
+    origCols.forEach(k => html += `<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${row[k]||''}</td>`);
+
+    const pClass  = row['Priority']==='P1' ? 'badge-p1' : row['Priority']==='P2' ? 'badge-p2' : 'badge-p3';
+    const tClass  = row['Title_Changed']==='YES' ? 'badge-yes' : 'badge-no';
+    const eClass  = row['Email_Status']==='OUTDATED' ? 'badge-warn' : 'badge-ok';
+
+    html += `<td style="color:var(--text-dim);white-space:nowrap">${row['Snov_Current_Title']||'-'}</td>`;
+    html += `<td><span class="badge ${tClass}">${row['Title_Changed']||'-'}</span></td>`;
+    html += `<td style="font-size:10px;color:var(--text-muted)">${row['Old_Title']||'-'}</td>`;
+    html += `<td style="font-size:10px;color:var(--accent2)">${row['New_Title']||'-'}</td>`;
+    html += `<td><span class="badge ${eClass}">${row['Email_Status']||'-'}</span></td>`;
+    html += `<td style="font-size:10px;color:var(--accent2)">${row['New_Email_Found']||'-'}</td>`;
+    html += `<td style="font-size:10px;color:var(--text-muted)">${row['Company_Domain_Changed']||'-'}</td>`;
+    html += `<td style="font-size:10px;color:var(--text-muted);white-space:nowrap">${row['Location_Snov']||'-'}</td>`;
+    html += `<td><div style="display:flex;flex-wrap:wrap;gap:3px;max-width:180px">${(row['Skills_Snov']||'').split(';').filter(Boolean).map(s=>`<span class="skill-tag">${s.trim()}</span>`).join('')}</div></td>`;
+    html += `<td style="font-size:10px;color:var(--text-dim);max-width:160px">${row['Changes_Summary']||'-'}</td>`;
+    html += `<td><span class="badge ${pClass}">${row['Priority']||'-'}</span></td>`;
+    html += `<td style="max-width:200px;font-size:10px;color:var(--text-dim);line-height:1.5">${row['Hook_P1']||'-'}</td>`;
+    html += `<td style="max-width:200px;font-size:10px;color:var(--text-dim);line-height:1.5">${row['Hook_P2']||'-'}</td>`;
+    html += `<td style="max-width:180px;font-size:10px;color:var(--accent);font-style:italic">${row['Email_Subject']||'-'}</td>`;
+    html += `<td style="max-width:220px;font-size:10px;color:var(--text-dim);line-height:1.5">${row['Email_Opening_Line']||'-'}</td>`;
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+// ─── CSV DOWNLOAD ─────────────────────────────────────────
+function downloadCSV() {
+  if (!enrichedData.length) return;
+  const headers = Object.keys(enrichedData[0]);
+  const esc = v => `"${String(v||'').replace(/"/g,'""')}"`;
+  let csv = headers.map(esc).join(',') + '\n';
+  enrichedData.forEach(row => { csv += headers.map(h => esc(row[h])).join(',') + '\n'; });
+
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `enriched_leads_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  log('✅ Enriched CSV downloaded! Open in Excel or Google Sheets.', 'ok');
+}
+
+// ─── DRAG & DROP ──────────────────────────────────────────
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file?.name.endsWith('.csv')) {
+    const input = document.getElementById('csvFile');
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    handleFileSelect(input);
+  } else {
+    log('❌ Please drop a .csv file', 'err');
+  }
+});
+</script>
+</body>
+</html>
