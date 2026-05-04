@@ -101,6 +101,7 @@ input:checked + .slider:before { transform: translateX(16px); }
 table { width: 100%; border-collapse: collapse; font-size: 11px; }
 thead th { background: var(--surface2); padding: 10px 12px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
 thead th.new-col { color: var(--accent); }
+thead th.provider-col { color: #60a5fa; }
 tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.15s; }
 tbody tr:hover { background: rgba(255,255,255,0.02); }
 tbody td { padding: 10px 12px; vertical-align: top; }
@@ -110,6 +111,11 @@ tbody td { padding: 10px 12px; vertical-align: top; }
 .badge-ok { background: rgba(16,185,129,0.1); color: var(--accent2); }
 .badge-warn { background: rgba(245,158,11,0.1); color: var(--p2); }
 .badge-verified { background: rgba(16,185,129,0.15); color: var(--accent2); border: 1px solid rgba(16,185,129,0.4); }
+/* Email provider badges */
+.badge-google { background: rgba(234,67,53,0.15); color: #ea4335; border: 1px solid rgba(234,67,53,0.35); }
+.badge-microsoft { background: rgba(0,120,212,0.15); color: #0078d4; border: 1px solid rgba(0,120,212,0.35); }
+.badge-other { background: rgba(100,116,139,0.12); color: var(--text-muted); border: 1px solid rgba(100,116,139,0.25); }
+.badge-unknown { background: rgba(100,116,139,0.08); color: var(--text-muted); border: 1px solid var(--border); }
 .right-panel { display: flex; flex-direction: column; gap: 16px; }
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
 .empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.5; }
@@ -148,7 +154,7 @@ tbody td { padding: 10px 12px; vertical-align: top; }
 
   <header>
     <div class="logo">
-      <img src="Images/Orange Brand Mark Dimensions.png" alt="LeadForge Logo" class="logo-img">
+      <img src="LEAD-Project/Images/Orange Brand Mark Dimensions.png" alt="LeadForge Logo" class="logo-img">
       <div>
         <div class="logo-text">DD-LEADS</div>
         <div class="logo-sub">Disruptive Designs Lead Enricher</div>
@@ -271,6 +277,69 @@ let enrichedData = [];
 let snovToken = null;
 let tokenExpiry = 0;
 let isProcessing = false;
+
+// ─── EMAIL PROVIDER DETECTION ────────────────────────────
+// Detects whether an email belongs to Google, Microsoft, or Other
+const GOOGLE_DOMAINS = [
+  'gmail.com', 'googlemail.com', 'google.com',
+  'googleplex.com'
+];
+const MICROSOFT_DOMAINS = [
+  'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+  'microsoft.com', 'office365.com', 'windowslive.com',
+  'hotmail.co.uk', 'live.co.uk', 'outlook.co.uk'
+];
+
+// MX-based provider hints (common patterns in business email domains)
+// For business emails, we check known Google Workspace & Microsoft 365 MX patterns
+// Since we can't do live MX lookups in browser, we use domain-suffix heuristics + known lists
+function detectEmailProvider(email) {
+  if (!email || !email.includes('@')) return 'Unknown';
+  const domain = email.split('@')[1].toLowerCase().trim();
+
+  // Direct consumer domain match
+  if (GOOGLE_DOMAINS.includes(domain)) return 'Google';
+  if (MICROSOFT_DOMAINS.includes(domain)) return 'Microsoft';
+
+  // Common Google Workspace subdomain patterns
+  // Snov.io returns MX data — we check email domain for well-known patterns
+  // Heuristic: if domain ends with known google-hosted suffixes
+  // (This is a best-effort detection for business emails)
+
+  // Check for Microsoft Office 365 common patterns
+  if (domain.endsWith('.onmicrosoft.com')) return 'Microsoft';
+
+  // For business emails we can't definitively know without MX lookup,
+  // so we return "Other" (business/custom domain)
+  return 'Other';
+}
+
+// Enhanced: use Snov.io's returned MX/provider data if available
+function detectProviderFromSnovData(emailObj) {
+  if (!emailObj) return null;
+  // Snov.io sometimes returns smtpStatus, mxExists, or provider field
+  const provider = emailObj.emailProvider || emailObj.provider || emailObj.smtp_provider || null;
+  if (provider) {
+    const p = provider.toLowerCase();
+    if (p.includes('google') || p.includes('gmail') || p.includes('gsuite') || p.includes('workspace')) return 'Google';
+    if (p.includes('microsoft') || p.includes('outlook') || p.includes('office365') || p.includes('exchange')) return 'Microsoft';
+  }
+  return null;
+}
+
+function providerBadgeClass(provider) {
+  if (provider === 'Google') return 'badge-google';
+  if (provider === 'Microsoft') return 'badge-microsoft';
+  if (provider === 'Other') return 'badge-other';
+  return 'badge-unknown';
+}
+
+function providerIcon(provider) {
+  if (provider === 'Google') return '🔴 Google';
+  if (provider === 'Microsoft') return '🔵 Microsoft';
+  if (provider === 'Other') return '⚪ Other';
+  return '— Unknown';
+}
 
 // ─── COLUMN RESOLVER ─────────────────────────────────────
 const COL_MAP = {
@@ -419,13 +488,12 @@ async function enrichLinkedIn(linkedinUrl) {
 }
 
 // ─── FIND EMAIL — Verified (green) only ──────────────────
-// Snov.io email statuses: 1 = valid/verified (green), 2 = unverified, 0 = invalid (red)
-// Only return email if status === 1 (verified/valid)
+// Returns full email object so we can extract provider info from Snov.io response
 async function findVerifiedEmail(firstName, lastName, domain) {
   firstName = (firstName || '').toString().trim();
   lastName  = (lastName  || '').toString().trim();
   domain    = (domain    || '').toString().trim();
-  if (!firstName || !lastName || !domain) return { email: null, verified: false };
+  if (!firstName || !lastName || !domain) return { email: null, verified: false, emailObj: null };
 
   const token = await getSnovToken();
   const formData = new FormData();
@@ -439,21 +507,19 @@ async function findVerifiedEmail(firstName, lastName, domain) {
     body: formData
   });
 
-  if (!res.ok) return { email: null, verified: false };
+  if (!res.ok) return { email: null, verified: false, emailObj: null };
   const data = await res.json();
 
   const emails = data?.data?.emails || [];
 
   // Only accept emails with status === 1 (valid/verified — green in Snov.io UI)
-  // status: 1 = Valid, 2 = Unverifiable, 0 = Invalid
   const verifiedEmail = emails.find(e => e.status === 1 || e.emailStatus === 'valid' || e.emailStatus === 'Valid');
 
   if (verifiedEmail) {
-    return { email: verifiedEmail.email, verified: true };
+    return { email: verifiedEmail.email, verified: true, emailObj: verifiedEmail };
   }
 
-  // Log what we got but rejected
-  return { email: null, verified: false, rejected: emails.map(e => e.email).join(', ') };
+  return { email: null, verified: false, emailObj: null, rejected: emails.map(e => e.email).join(', ') };
 }
 
 // ─── CHANGE DETECTION ────────────────────────────────────
@@ -593,12 +659,13 @@ async function startProcessing() {
     const firstName = getField(lead,'firstName');
     const lastName = getField(lead,'lastName');
     const companyUrl = getField(lead,'url');
+    const oldEmail = getField(lead,'email');
 
     log(`[${i+1}/${csvData.length}] → ${name} @ ${company}`);
     updateProgress(i, csvData.length);
 
     let enriched = null;
-    let chg = { newTitle:null, titleChanged:false, emailOutdated:false, newEmail:null, newEmailVerified:false, companyChanged:false, summary:'Not enriched', location:'' };
+    let chg = { newTitle:null, titleChanged:false, emailOutdated:false, newEmail:null, newEmailVerified:false, newEmailObj:null, companyChanged:false, summary:'Not enriched', location:'' };
 
     // STEP 1: LinkedIn enrichment
     if (doLinkedin && linkedinUrl) {
@@ -628,6 +695,7 @@ async function startProcessing() {
           if (result.email) {
             chg.newEmail = result.email;
             chg.newEmailVerified = true;
+            chg.newEmailObj = result.emailObj;
             verifiedEmailsCount++;
             log(`   ✅ Verified email found: ${result.email}`, 'ok');
           } else {
@@ -645,20 +713,51 @@ async function startProcessing() {
 
     if (chg.titleChanged || chg.companyChanged || chg.emailOutdated) changesCount++;
 
-    // Build result row — removed: Skills_Snov, Priority, Hook_P1, Hook_P2, Email_Subject, Email_Opening_Line
-    const row = {
-      ...lead,
-      'Snov_Current_Title':     chg.newTitle || enriched?.positions?.[0]?.title || getField(lead,'designation') || '',
-      'Title_Changed':          chg.titleChanged ? 'YES' : 'NO',
-      'Old_Title':              getField(lead,'designation') || '',
-      'New_Title':              chg.newTitle || '',
-      'Email_Status':           chg.emailOutdated ? 'OUTDATED' : 'OK',
-      'New_Email_Found':        chg.newEmail || '',
-      'New_Email_Verified':     chg.newEmailVerified ? 'VERIFIED ✓' : '',
-      'Company_Domain_Changed': chg.companyChanged ? 'YES' : 'NO',
-      'Location_Snov':          chg.location || '',
-      'Changes_Summary':        chg.summary
-    };
+    // ── Detect email providers ──────────────────────────
+    const oldEmailProvider = oldEmail ? detectEmailProvider(oldEmail) : '';
+    const oldEmailDomain   = oldEmail && oldEmail.includes('@') ? oldEmail.split('@')[1].toLowerCase() : '';
+
+    let newEmailProvider = '';
+    let newEmailDomain   = '';
+    if (chg.newEmail) {
+      const fromSnov = detectProviderFromSnovData(chg.newEmailObj);
+      newEmailProvider = fromSnov || detectEmailProvider(chg.newEmail);
+      newEmailDomain   = chg.newEmail.includes('@') ? chg.newEmail.split('@')[1].toLowerCase() : '';
+    }
+
+    // Build result row — email group first, then enrichment columns
+    // We build a custom-ordered object so CSV column order is correct
+    const origKeys = Object.keys(lead);
+    const emailColKey = colMap['email']; // actual column name in CSV e.g. "Email"
+
+    // Split original cols into: before-email, email-col, after-email
+    const emailIdx = emailColKey ? origKeys.indexOf(emailColKey) : -1;
+
+    const row = {};
+    // 1. Original cols up to and including Email
+    origKeys.forEach((k, i) => {
+      if (i <= emailIdx || emailIdx === -1) row[k] = lead[k];
+    });
+    // 2. New email-group columns right after Email
+    row['Email_Domain']        = oldEmailDomain;
+    row['Email_Provider']      = oldEmailProvider;
+    row['New_Email']           = chg.newEmail || '';
+    row['New_Email_Domain']    = newEmailDomain;
+    row['New_Email_Provider']  = newEmailProvider;
+    row['New_Email_Verified']  = chg.newEmailVerified ? 'VERIFIED ✓' : '';
+    // 3. Remaining original cols after Email
+    if (emailIdx !== -1) {
+      origKeys.forEach((k, i) => { if (i > emailIdx) row[k] = lead[k]; });
+    }
+    // 4. Other enrichment columns
+    row['Email_Status']           = chg.emailOutdated ? 'OUTDATED' : 'OK';
+    row['Snov_Current_Title']     = chg.newTitle || enriched?.positions?.[0]?.title || getField(lead,'designation') || '';
+    row['Title_Changed']          = chg.titleChanged ? 'YES' : 'NO';
+    row['Old_Title']              = getField(lead,'designation') || '';
+    row['New_Title']              = chg.newTitle || '';
+    row['Company_Domain_Changed'] = chg.companyChanged ? 'YES' : 'NO';
+    row['Location_Snov']          = chg.location || '';
+    row['Changes_Summary']        = chg.summary;
 
     enrichedData.push(row);
 
@@ -695,39 +794,49 @@ function renderPreviewTable(data) {
   container.innerHTML = html;
 }
 
+// New-col keys (added by enricher) — used for styling headers
+const ENRICHED_KEYS = new Set([
+  'Email_Domain','Email_Provider',
+  'New_Email','New_Email_Domain','New_Email_Provider','New_Email_Verified',
+  'Email_Status','Snov_Current_Title','Title_Changed','Old_Title','New_Title',
+  'Company_Domain_Changed','Location_Snov','Changes_Summary'
+]);
+
 function renderResultsTable(data) {
   const container = document.getElementById('tableContainer');
-  const origCols = Object.keys(csvData[0] || {});
-  const newCols = [
-    'Snov_Current_Title','Title_Changed','Old_Title','New_Title',
-    'Email_Status','New_Email_Found','New_Email_Verified',
-    'Company_Domain_Changed','Location_Snov','Changes_Summary'
-  ];
+  // Use key order from first enriched row — this preserves our custom insertion order
+  const allCols = Object.keys(data[0] || {});
 
   let html = '<div style="max-height:500px;overflow:auto"><table><thead><tr>';
-  origCols.forEach(k => html += `<th>${k}</th>`);
-  newCols.forEach(k => html += `<th class="new-col">${k.replace(/_/g,' ')}</th>`);
+  allCols.forEach(k => {
+    const isProvider = k.includes('Provider');
+    const isNew = ENRICHED_KEYS.has(k);
+    const cls = isProvider ? 'provider-col' : (isNew ? 'new-col' : '');
+    html += `<th${cls ? ` class="${cls}"` : ''}>${k.replace(/_/g,' ')}</th>`;
+  });
   html += '</tr></thead><tbody>';
 
   data.forEach(row => {
     html += '<tr>';
-    origCols.forEach(k => html += `<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${row[k]||''}</td>`);
+    allCols.forEach(k => {
+      const val = row[k] || '';
 
-    const tClass = row['Title_Changed']==='YES' ? 'badge-yes' : 'badge-no';
-    const eClass = row['Email_Status']==='OUTDATED' ? 'badge-warn' : 'badge-ok';
-
-    html += `<td style="color:var(--text-dim);white-space:nowrap">${row['Snov_Current_Title']||'-'}</td>`;
-    html += `<td><span class="badge ${tClass}">${row['Title_Changed']||'-'}</span></td>`;
-    html += `<td style="font-size:10px;color:var(--text-muted)">${row['Old_Title']||'-'}</td>`;
-    html += `<td style="font-size:10px;color:var(--accent2)">${row['New_Title']||'-'}</td>`;
-    html += `<td><span class="badge ${eClass}">${row['Email_Status']||'-'}</span></td>`;
-    html += `<td style="font-size:10px;color:var(--accent2)">${row['New_Email_Found']||'-'}</td>`;
-    // Verified badge — only show if verified
-    const verifiedText = row['New_Email_Verified'] || '';
-    html += `<td>${verifiedText ? `<span class="badge badge-verified">${verifiedText}</span>` : '-'}</td>`;
-    html += `<td style="font-size:10px;color:var(--text-muted)">${row['Company_Domain_Changed']||'-'}</td>`;
-    html += `<td style="font-size:10px;color:var(--text-muted);white-space:nowrap">${row['Location_Snov']||'-'}</td>`;
-    html += `<td style="font-size:10px;color:var(--text-dim);max-width:160px">${row['Changes_Summary']||'-'}</td>`;
+      if (k === 'Email_Provider' || k === 'New_Email_Provider') {
+        html += `<td>${val ? `<span class="badge ${providerBadgeClass(val)}">${providerIcon(val)}</span>` : '<span style="color:var(--text-muted);font-size:10px">—</span>'}</td>`;
+      } else if (k === 'New_Email_Verified') {
+        html += `<td>${val ? `<span class="badge badge-verified">${val}</span>` : '-'}</td>`;
+      } else if (k === 'Title_Changed') {
+        html += `<td><span class="badge ${val==='YES'?'badge-yes':'badge-no'}">${val||'-'}</span></td>`;
+      } else if (k === 'Email_Status') {
+        html += `<td><span class="badge ${val==='OUTDATED'?'badge-warn':'badge-ok'}">${val||'-'}</span></td>`;
+      } else if (k === 'New_Email' || k === 'New_Title') {
+        html += `<td style="font-size:10px;color:var(--accent2)">${val||'-'}</td>`;
+      } else if (ENRICHED_KEYS.has(k)) {
+        html += `<td style="font-size:10px;color:var(--text-muted);white-space:nowrap;max-width:160px">${val||'-'}</td>`;
+      } else {
+        html += `<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${val}</td>`;
+      }
+    });
     html += '</tr>';
   });
 
