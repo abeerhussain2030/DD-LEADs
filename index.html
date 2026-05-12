@@ -111,6 +111,7 @@ tbody td { padding: 10px 12px; vertical-align: top; }
 .badge-ok { background: rgba(16,185,129,0.1); color: var(--accent2); }
 .badge-warn { background: rgba(245,158,11,0.1); color: var(--p2); }
 .badge-verified { background: rgba(16,185,129,0.15); color: var(--accent2); border: 1px solid rgba(16,185,129,0.4); }
+.badge-nomatch { background: rgba(245,158,11,0.12); color: var(--p2); border: 1px solid rgba(245,158,11,0.3); }
 /* Email provider badges */
 .badge-google { background: rgba(234,67,53,0.15); color: #ea4335; border: 1px solid rgba(234,67,53,0.35); }
 .badge-microsoft { background: rgba(0,120,212,0.15); color: #0078d4; border: 1px solid rgba(0,120,212,0.35); }
@@ -279,10 +280,8 @@ let tokenExpiry = 0;
 let isProcessing = false;
 
 // ─── EMAIL PROVIDER DETECTION ────────────────────────────
-// Detects whether an email belongs to Google, Microsoft, or Other
 const GOOGLE_DOMAINS = [
-  'gmail.com', 'googlemail.com', 'google.com',
-  'googleplex.com'
+  'gmail.com', 'googlemail.com', 'google.com', 'googleplex.com'
 ];
 const MICROSOFT_DOMAINS = [
   'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
@@ -290,34 +289,17 @@ const MICROSOFT_DOMAINS = [
   'hotmail.co.uk', 'live.co.uk', 'outlook.co.uk'
 ];
 
-// MX-based provider hints (common patterns in business email domains)
-// For business emails, we check known Google Workspace & Microsoft 365 MX patterns
-// Since we can't do live MX lookups in browser, we use domain-suffix heuristics + known lists
 function detectEmailProvider(email) {
   if (!email || !email.includes('@')) return 'Unknown';
   const domain = email.split('@')[1].toLowerCase().trim();
-
-  // Direct consumer domain match
   if (GOOGLE_DOMAINS.includes(domain)) return 'Google';
   if (MICROSOFT_DOMAINS.includes(domain)) return 'Microsoft';
-
-  // Common Google Workspace subdomain patterns
-  // Snov.io returns MX data — we check email domain for well-known patterns
-  // Heuristic: if domain ends with known google-hosted suffixes
-  // (This is a best-effort detection for business emails)
-
-  // Check for Microsoft Office 365 common patterns
   if (domain.endsWith('.onmicrosoft.com')) return 'Microsoft';
-
-  // For business emails we can't definitively know without MX lookup,
-  // so we return "Other" (business/custom domain)
   return 'Other';
 }
 
-// Enhanced: use Snov.io's returned MX/provider data if available
 function detectProviderFromSnovData(emailObj) {
   if (!emailObj) return null;
-  // Snov.io sometimes returns smtpStatus, mxExists, or provider field
   const provider = emailObj.emailProvider || emailObj.provider || emailObj.smtp_provider || null;
   if (provider) {
     const p = provider.toLowerCase();
@@ -416,6 +398,62 @@ function domainRoot(domain) {
   return domain.split('.')[0] || '';
 }
 
+// ─── COMPANY POSITION MATCHER ────────────────────────────
+// Scans ALL LinkedIn positions and finds the one matching the CSV company.
+// Scoring: domain exact (100) > name exact (80) > title match (70) > domain root (60) > current bonus (50) > name partial (40)
+// Returns null if no position scores >= 40 (no reliable match found).
+function findMatchingPosition(positions, companyUrl, companyName, currentDesignation) {
+  if (!positions || positions.length === 0) return null;
+
+  const csvDomain     = normalizeDomain(companyUrl);
+  const csvDomainRoot = domainRoot(csvDomain);
+  const csvNameNorm   = (companyName || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+  const csvTitleNorm  = (currentDesignation || '').toLowerCase().trim();
+
+  let bestPos   = null;
+  let bestScore = 0;
+
+  for (const pos of positions) {
+    let score = 0;
+
+    // ── Domain matching ──────────────────────────────────
+    const posDomain     = normalizeDomain(pos.url || pos.companyUrl || pos.company_url || '');
+    const posDomainRoot = domainRoot(posDomain);
+
+    if (csvDomain && posDomain && csvDomain === posDomain)                            score += 100;
+    else if (csvDomainRoot && posDomainRoot && csvDomainRoot === posDomainRoot)       score += 60;
+
+    // ── Company name matching ────────────────────────────
+    const posNameNorm = (pos.companyName || pos.company || pos.company_name || '')
+                          .toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+
+    if (csvNameNorm && posNameNorm) {
+      if (csvNameNorm === posNameNorm)                                                score += 80;
+      else if (posNameNorm.includes(csvNameNorm) || csvNameNorm.includes(posNameNorm)) score += 40;
+    }
+
+    // ── Current position bonus ───────────────────────────
+    // Active/current job ko strong preference do
+    const isCurrent = pos.current === true || pos.current === 1 ||
+                      pos.isCurrent === true || !pos.endDate ||
+                      pos.endDate === null || pos.endDate === '';
+    if (isCurrent) score += 50;
+
+    // ── Title tiebreaker ─────────────────────────────────
+    // CSV wala title bhi match kare to yaqeenan sahi position hai
+    const posTitleNorm = (pos.title || '').toLowerCase().trim();
+    if (csvTitleNorm && posTitleNorm && csvTitleNorm === posTitleNorm) score += 70;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestPos   = pos;
+    }
+  }
+
+  // Minimum threshold — below 40 means no reliable match
+  return bestScore >= 40 ? bestPos : null;
+}
+
 // ─── SNOV.IO ─────────────────────────────────────────────
 function apiBase() {
   return document.getElementById('corsProxy').checked
@@ -426,13 +464,13 @@ function apiBase() {
 async function getSnovToken() {
   if (snovToken && Date.now() < tokenExpiry) return snovToken;
 
-  const clientId = document.getElementById('snovClientId').value.trim();
+  const clientId     = document.getElementById('snovClientId').value.trim();
   const clientSecret = document.getElementById('snovClientSecret').value.trim();
   if (!clientId || !clientSecret) throw new Error('Snov.io Client ID and Secret are required.');
 
   const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: clientId,
+    grant_type:    'client_credentials',
+    client_id:     clientId,
     client_secret: clientSecret
   });
 
@@ -449,7 +487,7 @@ async function getSnovToken() {
 
   const data = await res.json();
   if (!data.access_token) throw new Error('No access_token in response: ' + JSON.stringify(data));
-  snovToken = data.access_token;
+  snovToken   = data.access_token;
   tokenExpiry = Date.now() + 3000 * 1000;
   return snovToken;
 }
@@ -461,22 +499,23 @@ async function enrichLinkedIn(linkedinUrl) {
   formData.append('urls[]', linkedinUrl.trim());
 
   const startRes = await fetch(`${apiBase()}/v2/li-profiles-by-urls/start`, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Authorization': 'Bearer ' + token },
-    body: formData
+    body:    formData
   });
 
   if (!startRes.ok) throw new Error(`LinkedIn start error (${startRes.status})`);
 
   const startData = await startRes.json();
-  const taskHash = startData?.data?.task_hash;
+  const taskHash  = startData?.data?.task_hash;
   if (!taskHash) throw new Error('No task_hash returned: ' + JSON.stringify(startData).slice(0,200));
 
   for (let i = 0; i < 10; i++) {
     await sleep(4000);
-    const resultRes = await fetch(`${apiBase()}/v2/li-profiles-by-urls/result?task_hash=${taskHash}`, {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
+    const resultRes = await fetch(
+      `${apiBase()}/v2/li-profiles-by-urls/result?task_hash=${taskHash}`,
+      { headers: { 'Authorization': 'Bearer ' + token } }
+    );
     if (!resultRes.ok) continue;
     const resultData = await resultRes.json();
     if (resultData.status === 'completed' && resultData.data?.length > 0) {
@@ -488,32 +527,31 @@ async function enrichLinkedIn(linkedinUrl) {
 }
 
 // ─── FIND EMAIL — Verified (green) only ──────────────────
-// Returns full email object so we can extract provider info from Snov.io response
 async function findVerifiedEmail(firstName, lastName, domain) {
   firstName = (firstName || '').toString().trim();
   lastName  = (lastName  || '').toString().trim();
   domain    = (domain    || '').toString().trim();
   if (!firstName || !lastName || !domain) return { email: null, verified: false, emailObj: null };
 
-  const token = await getSnovToken();
+  const token    = await getSnovToken();
   const formData = new FormData();
   formData.append('firstName', firstName);
-  formData.append('lastName', lastName);
-  formData.append('domain', domain);
+  formData.append('lastName',  lastName);
+  formData.append('domain',    domain);
 
   const res = await fetch(`${apiBase()}/v1/get-emails-from-names`, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Authorization': 'Bearer ' + token },
-    body: formData
+    body:    formData
   });
 
   if (!res.ok) return { email: null, verified: false, emailObj: null };
   const data = await res.json();
 
-  const emails = data?.data?.emails || [];
-
-  // Only accept emails with status === 1 (valid/verified — green in Snov.io UI)
-  const verifiedEmail = emails.find(e => e.status === 1 || e.emailStatus === 'valid' || e.emailStatus === 'Valid');
+  const emails        = data?.data?.emails || [];
+  const verifiedEmail = emails.find(
+    e => e.status === 1 || e.emailStatus === 'valid' || e.emailStatus === 'Valid'
+  );
 
   if (verifiedEmail) {
     return { email: verifiedEmail.email, verified: true, emailObj: verifiedEmail };
@@ -523,42 +561,95 @@ async function findVerifiedEmail(firstName, lastName, domain) {
 }
 
 // ─── CHANGE DETECTION ────────────────────────────────────
+// STRICT: only reads the LinkedIn position that matches the CSV company URL/name.
+// If no position matches → title is left unchanged, only email check still runs.
 function detectChanges(lead, enriched) {
-  const changes = { newTitle:null, titleChanged:false, emailOutdated:false, newEmail:null, newEmailVerified:false, companyChanged:false, summary:'No changes detected', location:'' };
+  const changes = {
+    newTitle:        null,
+    titleChanged:    false,
+    emailOutdated:   false,
+    newEmail:        null,
+    newEmailVerified: false,
+    newEmailObj:     null,
+    companyChanged:  false,
+    summary:         'No changes detected',
+    location:        '',
+    matchedPosition: null,
+    noCompanyMatch:  false
+  };
+
   if (!enriched) return changes;
 
+  const companyUrl  = getField(lead, 'url');
+  const companyName = getField(lead, 'company');
+
+  // ── Find the ONE position that belongs to THIS company ──
+  const matchedPos = findMatchingPosition(
+    enriched.positions || [],
+    companyUrl,
+    companyName,
+    getField(lead, 'designation')
+  );
+
+  changes.matchedPosition = matchedPos;
+
+  // ── No matching position found ──────────────────────────
+  if (!matchedPos) {
+    changes.noCompanyMatch = true;
+
+    // Still run email-domain check (company-URL based, no LinkedIn needed)
+    const currentEmail    = getField(lead, 'email').toLowerCase();
+    const emailDomain     = currentEmail.split('@')[1] || '';
+    const emailDomainRoot = domainRoot(emailDomain);
+    const csvDomain       = normalizeDomain(companyUrl);
+    const csvDomainRoot   = domainRoot(csvDomain);
+
+    if (emailDomainRoot && csvDomainRoot && emailDomainRoot !== csvDomainRoot) {
+      changes.emailOutdated = true;
+      changes.summary = `Email domain mismatch: "${emailDomain}" vs company "${csvDomain}" | ⚠️ No LinkedIn position matched company "${companyName}" — title unchanged`;
+    } else {
+      changes.summary = `⚠️ No LinkedIn position matched company "${companyName}" — title unchanged`;
+    }
+
+    return changes;
+  }
+
+  // ── Matched position found — run all checks ─────────────
   const parts = [];
 
-  // 1. Title change
-  const oldTitle = getField(lead,'designation').trim().toLowerCase();
-  const liTitle = (enriched.positions?.[0]?.title || '').trim().toLowerCase();
+  // 1. Title change — ONLY from the matched company's position
+  const oldTitle = getField(lead, 'designation').trim().toLowerCase();
+  const liTitle  = (matchedPos.title || '').trim().toLowerCase();
+
   if (liTitle && oldTitle && liTitle !== oldTitle) {
     changes.titleChanged = true;
-    changes.newTitle = enriched.positions?.[0]?.title;
+    changes.newTitle     = matchedPos.title;
     parts.push(`Promotion: "${getField(lead,'designation')}" → "${changes.newTitle}"`);
   }
 
   // 2. Company domain change
-  const oldDomain = normalizeDomain(getField(lead,'url'));
-  const liDomain = normalizeDomain(enriched.positions?.[0]?.url || '');
+  const oldDomain = normalizeDomain(companyUrl);
+  const liDomain  = normalizeDomain(matchedPos.url || matchedPos.companyUrl || matchedPos.company_url || '');
+
   if (oldDomain && liDomain && oldDomain !== liDomain) {
     changes.companyChanged = true;
     parts.push(`Company domain: ${oldDomain} → ${liDomain}`);
   }
 
   // 3. Email outdated check
-  const currentEmail = getField(lead,'email').toLowerCase();
-  const emailDomain = currentEmail.split('@')[1] || '';
-  const emailDomainRoot = domainRoot(emailDomain);
+  const currentEmail        = getField(lead, 'email').toLowerCase();
+  const emailDomain         = currentEmail.split('@')[1] || '';
+  const emailDomainRoot     = domainRoot(emailDomain);
   const currentCompanyDomain = oldDomain || liDomain;
-  const currentCompanyRoot = domainRoot(currentCompanyDomain);
+  const currentCompanyRoot  = domainRoot(currentCompanyDomain);
+
   if (emailDomainRoot && currentCompanyRoot && emailDomainRoot !== currentCompanyRoot) {
     changes.emailOutdated = true;
     parts.push(`Email domain mismatch: "${emailDomain}" vs company "${currentCompanyDomain}"`);
   }
 
   changes.location = enriched.location || '';
-  changes.summary = parts.length > 0 ? parts.join(' | ') : 'No changes detected';
+  changes.summary  = parts.length > 0 ? parts.join(' | ') : 'No changes detected';
   return changes;
 }
 
@@ -570,7 +661,7 @@ function parseCSV(text) {
   for (let i = 1; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
     const vals = smartSplit(lines[i]);
-    const obj = {};
+    const obj  = {};
     headers.forEach((h, idx) => { obj[h] = (vals[idx] || '').trim().replace(/^"|"$/g, ''); });
     rows.push(obj);
   }
@@ -640,7 +731,7 @@ async function startProcessing() {
   hideError();
 
   const doLinkedin = document.getElementById('doLinkedin').checked;
-  const doEmail = document.getElementById('doEmail').checked;
+  const doEmail    = document.getElementById('doEmail').checked;
 
   document.getElementById('processBtn').disabled = true;
   document.getElementById('downloadBtn').style.display = 'none';
@@ -648,24 +739,29 @@ async function startProcessing() {
   enrichedData = [];
 
   let verifiedEmailsCount = 0;
-  let changesCount = 0;
+  let changesCount        = 0;
   log(`🚀 Starting processing of ${csvData.length} leads...`, 'info');
 
   for (let i = 0; i < csvData.length; i++) {
-    const lead = { ...csvData[i] };
-    const name = getField(lead,'fullName') || `${getField(lead,'firstName')} ${getField(lead,'lastName')}`.trim() || 'Unknown';
-    const company = getField(lead,'company') || '?';
+    const lead       = { ...csvData[i] };
+    const name       = getField(lead,'fullName') || `${getField(lead,'firstName')} ${getField(lead,'lastName')}`.trim() || 'Unknown';
+    const company    = getField(lead,'company') || '?';
     const linkedinUrl = getField(lead,'linkedin');
-    const firstName = getField(lead,'firstName');
-    const lastName = getField(lead,'lastName');
+    const firstName  = getField(lead,'firstName');
+    const lastName   = getField(lead,'lastName');
     const companyUrl = getField(lead,'url');
-    const oldEmail = getField(lead,'email');
+    const oldEmail   = getField(lead,'email');
 
     log(`[${i+1}/${csvData.length}] → ${name} @ ${company}`);
     updateProgress(i, csvData.length);
 
     let enriched = null;
-    let chg = { newTitle:null, titleChanged:false, emailOutdated:false, newEmail:null, newEmailVerified:false, newEmailObj:null, companyChanged:false, summary:'Not enriched', location:'' };
+    let chg = {
+      newTitle: null, titleChanged: false,
+      emailOutdated: false, newEmail: null, newEmailVerified: false, newEmailObj: null,
+      companyChanged: false, summary: 'Not enriched', location: '',
+      noCompanyMatch: false
+    };
 
     // STEP 1: LinkedIn enrichment
     if (doLinkedin && linkedinUrl) {
@@ -674,7 +770,12 @@ async function startProcessing() {
         enriched = await enrichLinkedIn(linkedinUrl);
         if (enriched) {
           chg = detectChanges(lead, enriched);
-          log(`   ✅ Profile fetched. Changes: ${chg.summary}`, 'ok');
+          // Log based on whether a matching company position was found
+          if (chg.noCompanyMatch) {
+            log(`   ⚠️ Profile fetched but no position matched "${company}" — title unchanged`, 'err');
+          } else {
+            log(`   ✅ Profile fetched. Matched position at "${company}". Changes: ${chg.summary}`, 'ok');
+          }
         } else {
           log(`   ⚠️ No profile data returned`, 'err');
         }
@@ -693,9 +794,9 @@ async function startProcessing() {
           log(`   → Searching for verified email at ${domain}...`);
           const result = await findVerifiedEmail(firstName, lastName, domain);
           if (result.email) {
-            chg.newEmail = result.email;
+            chg.newEmail         = result.email;
             chg.newEmailVerified = true;
-            chg.newEmailObj = result.emailObj;
+            chg.newEmailObj      = result.emailObj;
             verifiedEmailsCount++;
             log(`   ✅ Verified email found: ${result.email}`, 'ok');
           } else {
@@ -720,18 +821,15 @@ async function startProcessing() {
     let newEmailProvider = '';
     let newEmailDomain   = '';
     if (chg.newEmail) {
-      const fromSnov = detectProviderFromSnovData(chg.newEmailObj);
+      const fromSnov   = detectProviderFromSnovData(chg.newEmailObj);
       newEmailProvider = fromSnov || detectEmailProvider(chg.newEmail);
       newEmailDomain   = chg.newEmail.includes('@') ? chg.newEmail.split('@')[1].toLowerCase() : '';
     }
 
-    // Build result row — email group first, then enrichment columns
-    // We build a custom-ordered object so CSV column order is correct
-    const origKeys = Object.keys(lead);
-    const emailColKey = colMap['email']; // actual column name in CSV e.g. "Email"
-
-    // Split original cols into: before-email, email-col, after-email
-    const emailIdx = emailColKey ? origKeys.indexOf(emailColKey) : -1;
+    // ── Build result row ────────────────────────────────
+    const origKeys   = Object.keys(lead);
+    const emailColKey = colMap['email'];
+    const emailIdx   = emailColKey ? origKeys.indexOf(emailColKey) : -1;
 
     const row = {};
     // 1. Original cols up to and including Email
@@ -739,19 +837,22 @@ async function startProcessing() {
       if (i <= emailIdx || emailIdx === -1) row[k] = lead[k];
     });
     // 2. New email-group columns right after Email
-    row['Email_Domain']        = oldEmailDomain;
-    row['Email_Provider']      = oldEmailProvider;
-    row['New_Email']           = chg.newEmail || '';
-    row['New_Email_Domain']    = newEmailDomain;
-    row['New_Email_Provider']  = newEmailProvider;
-    row['New_Email_Verified']  = chg.newEmailVerified ? 'VERIFIED ✓' : '';
+    row['Email_Domain']       = oldEmailDomain;
+    row['Email_Provider']     = oldEmailProvider;
+    row['New_Email']          = chg.newEmail || '';
+    row['New_Email_Domain']   = newEmailDomain;
+    row['New_Email_Provider'] = newEmailProvider;
+    row['New_Email_Verified'] = chg.newEmailVerified ? 'VERIFIED ✓' : '';
     // 3. Remaining original cols after Email
     if (emailIdx !== -1) {
       origKeys.forEach((k, i) => { if (i > emailIdx) row[k] = lead[k]; });
     }
-    // 4. Other enrichment columns
+    // 4. Enrichment columns
     row['Email_Status']           = chg.emailOutdated ? 'OUTDATED' : 'OK';
-    row['Snov_Current_Title']     = chg.newTitle || enriched?.positions?.[0]?.title || getField(lead,'designation') || '';
+    row['Company_Match_Found']    = chg.noCompanyMatch ? 'NO MATCH' : 'MATCHED';
+    row['Snov_Current_Title']     = chg.noCompanyMatch
+                                      ? getField(lead,'designation')   // keep old if no match
+                                      : (chg.newTitle || chg.matchedPosition?.title || getField(lead,'designation') || '');
     row['Title_Changed']          = chg.titleChanged ? 'YES' : 'NO';
     row['Old_Title']              = getField(lead,'designation') || '';
     row['New_Title']              = chg.newTitle || '';
@@ -763,7 +864,7 @@ async function startProcessing() {
 
     // Update stats live
     document.getElementById('statVerifiedEmails').textContent = verifiedEmailsCount;
-    document.getElementById('statChanges').textContent = changesCount;
+    document.getElementById('statChanges').textContent        = changesCount;
     renderResultsTable(enrichedData);
 
     await sleep(1500);
@@ -789,29 +890,29 @@ function renderPreviewTable(data) {
     keys.forEach(k => html += `<td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim)">${row[k]||''}</td>`);
     html += '</tr>';
   });
-  if (data.length>5) html += `<tr><td colspan="${keys.length}" style="text-align:center;color:var(--text-muted);padding:10px;font-size:10px">+ ${data.length-5} more rows…</td></tr>`;
+  if (data.length > 5) html += `<tr><td colspan="${keys.length}" style="text-align:center;color:var(--text-muted);padding:10px;font-size:10px">+ ${data.length-5} more rows…</td></tr>`;
   html += '</tbody></table></div>';
   container.innerHTML = html;
 }
 
-// New-col keys (added by enricher) — used for styling headers
+// New-col keys (added by enricher)
 const ENRICHED_KEYS = new Set([
   'Email_Domain','Email_Provider',
   'New_Email','New_Email_Domain','New_Email_Provider','New_Email_Verified',
-  'Email_Status','Snov_Current_Title','Title_Changed','Old_Title','New_Title',
+  'Email_Status','Company_Match_Found','Snov_Current_Title',
+  'Title_Changed','Old_Title','New_Title',
   'Company_Domain_Changed','Location_Snov','Changes_Summary'
 ]);
 
 function renderResultsTable(data) {
   const container = document.getElementById('tableContainer');
-  // Use key order from first enriched row — this preserves our custom insertion order
-  const allCols = Object.keys(data[0] || {});
+  const allCols   = Object.keys(data[0] || {});
 
   let html = '<div style="max-height:500px;overflow:auto"><table><thead><tr>';
   allCols.forEach(k => {
     const isProvider = k.includes('Provider');
-    const isNew = ENRICHED_KEYS.has(k);
-    const cls = isProvider ? 'provider-col' : (isNew ? 'new-col' : '');
+    const isNew      = ENRICHED_KEYS.has(k);
+    const cls        = isProvider ? 'provider-col' : (isNew ? 'new-col' : '');
     html += `<th${cls ? ` class="${cls}"` : ''}>${k.replace(/_/g,' ')}</th>`;
   });
   html += '</tr></thead><tbody>';
@@ -829,6 +930,8 @@ function renderResultsTable(data) {
         html += `<td><span class="badge ${val==='YES'?'badge-yes':'badge-no'}">${val||'-'}</span></td>`;
       } else if (k === 'Email_Status') {
         html += `<td><span class="badge ${val==='OUTDATED'?'badge-warn':'badge-ok'}">${val||'-'}</span></td>`;
+      } else if (k === 'Company_Match_Found') {
+        html += `<td><span class="badge ${val==='MATCHED'?'badge-ok':'badge-nomatch'}">${val||'-'}</span></td>`;
       } else if (k === 'New_Email' || k === 'New_Title') {
         html += `<td style="font-size:10px;color:var(--accent2)">${val||'-'}</td>`;
       } else if (ENRICHED_KEYS.has(k)) {
@@ -853,9 +956,9 @@ function downloadCSV() {
   enrichedData.forEach(row => { csv += headers.map(h => esc(row[h])).join(',') + '\n'; });
 
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
   a.download = `enriched_leads_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
@@ -864,8 +967,8 @@ function downloadCSV() {
 
 // ─── DRAG & DROP ──────────────────────────────────────────
 const zone = document.getElementById('uploadZone');
-zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
-zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', ()  => zone.classList.remove('drag-over'));
 zone.addEventListener('drop', e => {
   e.preventDefault();
   zone.classList.remove('drag-over');
